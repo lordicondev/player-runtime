@@ -1,0 +1,156 @@
+Subject: lottie: ease each dimension of a keyframe with its own curve
+
+After Effects lets each dimension of a multi-dimensional property (scale, rectangle size,
+anchor...) have its own speed curve, and Lottie exports it as arrays in the keyframe's easing
+(`"i": {"x": [0.7, 0.8], "y": [1, 0.7]}`). ThorVG read only the first value, so every dimension
+followed the first one's curve: a squash animated differently in x and y came out with the wrong
+proportions mid-way (Lordicon: 2 062 of 17 860 public icons have such keyframes).
+
+The parser keeps the second dimension's tangents and, when they differ, gives the frame a second
+interpolator; scalar frames of points ease x with the first and y (and z) with the second.
+Spatial (position) frames keep one curve, as in After Effects.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieParser.h
++++ b/src/loaders/lottie/tvgLottieParser.h
+@@ -53,7 +53,7 @@
+     LottieEffect* getEffect(int type);
+ 
+     void getExpression(char* code, LottieComposition* comp, LottieLayer* layer, LottieObject* object, LottieProperty* property);
+-    void getInterpolatorPoint(Point& pt);
++    void getInterpolatorPoint(Point& pt, Point& second);
+     void getPathSet(LottiePath* obj, LottiePathSet& path);
+     void getLayerSize(float& val);
+     bool getValue(TextDocument& doc);
+--- a/src/loaders/lottie/tvgLottieParser.cpp
++++ b/src/loaders/lottie/tvgLottieParser.cpp
+@@ -331,17 +331,45 @@
+ }
+ 
+ 
+-void LottieParser::getInterpolatorPoint(Point& pt)
++//The tangent of the first dimension in pt, of the second one (the same when not given) in second.
++void LottieParser::getInterpolatorPoint(Point& pt, Point& second)
+ {
++    auto read = [&](float& first, float& other) {
++        if (peekType() == kArrayType) {
++            enterArray();
++            if (nextArrayValue()) {
++                first = other = getFloat();
++                if (nextArrayValue()) {
++                    other = getFloat();
++                    while (nextArrayValue()) getFloat();  //z: drop
++                }
++            }
++        } else first = other = getFloat();
++    };
+     enterObject();
+     while (auto key = nextObjectKey()) {
+-        if (KEY_AS("x")) getValue(pt.x);
+-        else if (KEY_AS("y")) getValue(pt.y);
++        if (KEY_AS("x")) read(pt.x, second.x);
++        else if (KEY_AS("y")) read(pt.y, second.y);
++        else skip();
+     }
+ }
+ 
+ 
+ template<typename T>
++static void setInterpolatorY(LottieScalarFrame<T>& frame, LottieInterpolator* interpolator)
++{
++    frame.interpolatorY = interpolator;
++}
++
++
++template<typename T>
++static void setInterpolatorY(TVG_UNUSED LottieVectorFrame<T>& frame, TVG_UNUSED LottieInterpolator* interpolator)
++{
++    //spatial properties (position) have one speed curve
++}
++
++
++template<typename T>
+ void LottieParser::parseSlotProperty(T& prop)
+ {
+     while (auto key = nextObjectKey()) {
+@@ -400,7 +428,7 @@
+ template<typename T>
+ void LottieParser::parseKeyFrame(T& prop)
+ {
+-    Point inTangent, outTangent;
++    Point inTangent, outTangent, inTangentY, outTangentY;
+     const char* interpolatorKey = nullptr;
+     auto& frame = prop.newFrame();
+     auto interpolator = false;
+@@ -410,9 +438,9 @@
+     while (auto key = nextObjectKey()) {
+         if (KEY_AS("i")) {
+             interpolator = true;
+-            getInterpolatorPoint(inTangent);
++            getInterpolatorPoint(inTangent, inTangentY);
+         } else if (KEY_AS("o")) {
+-            getInterpolatorPoint(outTangent);
++            getInterpolatorPoint(outTangent, outTangentY);
+         } else if (KEY_AS("n")) {
+             if (peekType() == kStringType) {
+                 interpolatorKey = getString();
+@@ -441,6 +469,9 @@
+ 
+     if (interpolator) {
+         frame.interpolator = getInterpolator(interpolatorKey, inTangent, outTangent);
++        if (inTangentY.x != inTangent.x || inTangentY.y != inTangent.y || outTangentY.x != outTangent.x || outTangentY.y != outTangent.y) {
++            setInterpolatorY(frame, getInterpolator(nullptr, inTangentY, outTangentY));
++        }
+     }
+ }
+ 
+--- a/src/loaders/lottie/tvgLottieProperty.h
++++ b/src/loaders/lottie/tvgLottieProperty.h
+@@ -37,23 +37,43 @@
+ //default keyframe updates condition (no tweening)
+ #define DEFAULT_COND (!tween.active || !frames || (frames->count == 1))
+ 
++//Per-dimension easing: After Effects gives each dimension of a multi-dimensional property
++//(scale, size...) its own speed curve. x follows t, y (and z) follow ty.
++template<typename T>
++static inline T lerpDimensions(const T& start, const T& end, float t, TVG_UNUSED float ty)
++{
++    return tvg::lerp(start, end, t);
++}
++
++static inline Point lerpDimensions(const Point& start, const Point& end, float t, float ty)
++{
++    return {tvg::lerp(start.x, end.x, t), tvg::lerp(start.y, end.y, ty)};
++}
++
++static inline Point3 lerpDimensions(const Point3& start, const Point3& end, float t, float ty)
++{
++    return {tvg::lerp(start.x, end.x, t), tvg::lerp(start.y, end.y, ty), tvg::lerp(start.z, end.z, ty)};
++}
++
+ template<typename T>
+ struct LottieScalarFrame
+ {
+     T value;                    //keyframe value
+     float no;                   //frame number
+     LottieInterpolator* interpolator;
++    LottieInterpolator* interpolatorY;  //the second dimension's easing, when it differs
+     bool hold = false;           //do not interpolate.
+ 
+     T interpolate(LottieScalarFrame<T>* next, float frameNo)
+     {
+-        auto t = (frameNo - no) / (next->no - no);
+-        if (interpolator) t = interpolator->progress(t);
++        auto t0 = (frameNo - no) / (next->no - no);
++        auto t = interpolator ? interpolator->progress(t0) : t0;
+ 
+         if (hold) {
+             if (t < 1.0f) return value;
+             else return next->value;
+         }
++        if (interpolatorY) return lerpDimensions(value, next->value, t, interpolatorY->progress(t0));
+         return tvg::lerp(value, next->value, t);
+     }
+ 

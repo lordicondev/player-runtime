@@ -1,0 +1,29 @@
+Subject: sw_engine: shapes with a blend method draw into 8-bit (matte, mask) surfaces
+
+A shape with a blend method other than Normal is drawn through the blending rasterizers, which
+support 32-bit surfaces only and give up on the 8-bit ones that mattes and masks are drawn
+into. Such a shape left no coverage at all, so a matte that holds one (a soft-light stroke on
+the matte's shape, say) hid everything under it (Lordicon: the content lines of a newspaper
+icon disappeared).
+
+An 8-bit surface holds coverage only, which a blend method does not change: there the shape is
+drawn as a normal one.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/renderer/cpu_engine/tvgSwRaster.cpp
++++ b/src/renderer/cpu_engine/tvgSwRaster.cpp
+@@ -68,9 +68,11 @@
+     return (a << 24 | r << 16 | g << 8 | b);
+ }
+ 
++//8-bit surfaces (mattes, masks) hold coverage only: a blend method changes colours, and the
++//coverage of a blended shape is that of a normal one.
+ static inline bool _blending(const SwSurface* surface)
+ {
+-    return (surface->blender) ? true : false;
++    return surface->blender && surface->channelSize == sizeof(uint32_t);
+ }
+ 
+ /* OPTIMIZE_ME: Probably, we can separate masking(8bits) / composition(32bits)

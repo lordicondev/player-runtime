@@ -1,0 +1,60 @@
+Subject: lottie: a slot applied on the same frame refreshes the layers' transforms
+
+LottieBuilder::updateTransform() caches each layer's matrix and opacity by frame number
+(layer->cache.frameNo) and returns early when asked for the same frame. A slot that overrides a
+layer's transform (opacity, position...) and is applied without a frame change sets `build`, and
+sync() rebuilds the scene, but every layer still returns its cached matrix and opacity from
+before the slot: the override shows only from the next frame on. Seen with layers switched by a
+slot on their opacity (Lordicon's legacy per-width stroke layers): changing the stroke of a
+paused icon drew the old width.
+
+The builder now keeps a generation, bumped when sync() rebuilds for a slot, and a layer's cache
+holds only for the generation it was computed in.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieModel.h
++++ b/src/loaders/lottie/tvgLottieModel.h
+@@ -1162,6 +1162,7 @@
+ 
+     struct {
+         float frameNo = -1.0f;
++        uint32_t gen = 0;  //builder generation the cache was computed in (slots applied since)
+         Matrix matrix;
+         uint8_t opacity;
+     } cache;
+--- a/src/loaders/lottie/tvgLottieBuilder.h
++++ b/src/loaders/lottie/tvgLottieBuilder.h
+@@ -178,6 +178,7 @@
+     const AssetResolver* resolver = nullptr;  //do not free this
+     AudioResolver audioResolver;
+     LottieTween tween;
++    uint32_t gen = 0;  //bumped when slots change the model without a frame change
+     float volume = 1.0f;
+ 
+ private:
+--- a/src/loaders/lottie/tvgLottieBuilder.cpp
++++ b/src/loaders/lottie/tvgLottieBuilder.cpp
+@@ -183,8 +183,9 @@
+     if (tween.active) {
+         layer->cache.frameNo = -1.0f;  // tweening doesn't cache the result; invalidate it
+     } else {
+-        if (tvg::equal(layer->cache.frameNo, frameNo)) return;
++        if (tvg::equal(layer->cache.frameNo, frameNo) && layer->cache.gen == gen) return;
+         layer->cache.frameNo = frameNo;
++        layer->cache.gen = gen;
+     }
+ 
+     auto transform = layer->transform;
+--- a/src/loaders/lottie/tvgLottieLoader.cpp
++++ b/src/loaders/lottie/tvgLottieLoader.cpp
+@@ -433,6 +433,8 @@
+ 
+     if (build) {
+         if (comp) comp->clear();
++        //A slot changed the model on the same frame: the layers' cached transforms are stale.
++        ++builder->gen;
+         run(0);
+     }
+     return true;

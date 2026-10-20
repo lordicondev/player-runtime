@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Workers</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="./main.css" />
+        <script type="module" src="/05-workers.ts"></script>
+    </head>
+
+    <body>
+        <p><a href="/">Examples</a></p>
+        <h1>Workers</h1>
+        <p>
+            Icons rendered on several threads: each worker has its own runtime and clock and draws
+            on canvases handed over with <code>transferControlToOffscreen()</code>. With 0 workers
+            everything runs on the main thread. Load the main thread to see the difference: icons in
+            workers keep moving.
+        </p>
+        <div class="controls">
+            <label>icons <input type="number" id="count" min="1" max="400" value="200" /></label>
+            <label>
+                size
+                <select id="size">
+                    <option>48</option>
+                    <option selected>96</option>
+                    <option>192</option>
+                </select>
+            </label>
+            <label>
+                workers
+                <select id="workers">
+                    <option value="0">0 (main thread)</option>
+                    <option>1</option>
+                    <option selected>2</option>
+                    <option>4</option>
+                </select>
+            </label>
+            <label>
+                load the main thread
+                <select id="busy">
+                    <option value="0" selected>no</option>
+                    <option value="20">20 ms per frame</option>
+                    <option value="50">50 ms per frame</option>
+                </select>
+            </label>
+        </div>
+        <p class="stats" id="stats"></p>
+        <div class="tiles" id="stage"></div>
+    </body>
+</html>

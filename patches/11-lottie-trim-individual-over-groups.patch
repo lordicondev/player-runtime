@@ -1,0 +1,274 @@
+Subject: lottie: trim paths "individually" across groups as one sequence
+
+A trim path set to "Trim Multiple Shapes: Individually" trims every path below it as one
+sequence, also the paths of the groups under it (After Effects, lottie-web). ThorVG draws each
+group that paints (a stroke of its own) as a shape of its own and gave every shape the whole
+trim range, so each group was trimmed on its own: other parts of the paths showed, e.g. dots
+of round caps where nothing should be drawn (Lordicon: 188 public icons trim this way).
+
+The builder now collects the shapes made under such a trim and, once the group is built, shares
+the range out over them in stacking order, by the length of their paths; a shape outside the
+range draws nothing. The paths of the groups under the trim are reversed as patch 08 does for
+the trim's own group, so that they too reach the trimming in stacking order.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieBuilder.h
++++ b/src/loaders/lottie/tvgLottieBuilder.h
+@@ -73,6 +73,20 @@
+ 
+ enum RenderFragment : uint8_t {ByNone = 0, ByFill, ByStroke};
+ 
++//The shapes under one "trim individually" that spans groups. Each group draws shapes of its own,
++//each trimmed whole; After Effects trims all their paths as one sequence. After the build the
++//trim is shared out over them (LottieBuilder::shareTrim).
++struct RenderTrimGroup
++{
++    struct Item
++    {
++        Shape* shape;
++        LottieGroup* group;  //shapes of one group (fragments) share the geometry
++    };
++    Array<Item> items;
++    float begin, end;
++};
++
+ struct RenderContext
+ {
+     INLIST_ITEM(RenderContext);
+@@ -85,6 +99,7 @@
+     LottieModifier* modifiers = nullptr;
+     RenderFragment fragment = ByNone;  //render context has been fragmented
+     bool reqFragment = false;  //requirement to fragment the render context
++    RenderTrimGroup* trims = nullptr;  //not owned: LottieBuilder::trims
+ 
+     RenderContext(Shape* propagator)
+     {
+@@ -106,6 +121,7 @@
+         propagator->ref();
+         repeaters = rhs.repeaters;
+         fragment = rhs.fragment;
++        trims = rhs.trims;
+ 
+         // copy modifiers
+         auto tail = &modifiers;
+@@ -179,9 +195,11 @@
+     AudioResolver audioResolver;
+     LottieTween tween;
+     uint32_t gen = 0;  //bumped when slots change the model without a frame change
++    Array<RenderTrimGroup*> trims;  //"trim individually" groups pending in updateChildren()
+     float volume = 1.0f;
+ 
+ private:
++    void shareTrim(RenderTrimGroup* trims);
+     void updateAudio(LottieComposition* comp, LottieLayer* layer, float frameNo, bool active);
+     void appendRect(LottieRect* rect, Shape* shape, Point& pos, Point& size, float r, bool clockwise, RenderContext* ctx);
+     void appendCircle(LottieEllipse* ellipse, Shape* shape, Point& center, Point& radius, bool clockwise, RenderContext* ctx);
+--- a/src/loaders/lottie/tvgLottieBuilder.cpp
++++ b/src/loaders/lottie/tvgLottieBuilder.cpp
+@@ -402,6 +402,7 @@
+     }
+ 
+     parent->scene->add(ctx->merging);
++    if (ctx->trims) ctx->trims->items.push({ctx->merging, parent});
+ 
+     return true;
+ }
+@@ -849,12 +850,103 @@
+ 
+     ctx->propagator->trimpath(begin, end, trimpath->type == LottieTrimpath::Type::Simultaneous);
+     ctx->merging = nullptr;
++
++    if (trimpath->type == LottieTrimpath::Type::Individual) {
++        auto trims = new RenderTrimGroup;
++        trims->begin = begin;
++        trims->end = end;
++        this->trims.push(trims);
++        ctx->trims = trims;
++    }
++}
++
++
++//The trim range normalized as RenderTrimPath does it (begin > end: through the end).
++static void _trimRange(float& begin, float& end)
++{
++    auto loop = true;
++
++    if (begin > 1.0f && end > 1.0f) loop = false;
++    if (begin < 0.0f && end < 0.0f) loop = false;
++    if (begin >= 0.0f && begin <= 1.0f && end >= 0.0f && end <= 1.0f) loop = false;
++
++    if (begin > 1.0f) begin -= 1.0f;
++    if (begin < 0.0f) begin += 1.0f;
++    if (end > 1.0f) end -= 1.0f;
++    if (end < 0.0f) end += 1.0f;
++
++    if ((loop && begin < end) || (!loop && begin > end)) std::swap(begin, end);
++}
++
++
++//Shares one "trim individually" out over the shapes of the groups it spans: they take its range
++//as one sequence of paths, in stacking order, and each shape keeps its part of it.
++void LottieBuilder::shareTrim(RenderTrimGroup* trims)
++{
++    //the groups in stacking order (built bottom first), with their path lengths
++    Array<LottieGroup*> groups;
++    Array<float> lengths;
++    for (auto i = (int)trims->items.count - 1; i >= 0; --i) {
++        auto& item = trims->items[i];
++        bool known = false;
++        ARRAY_FOREACH(g, groups) known |= (*g == item.group);
++        if (known) continue;
++        auto& path = to<ShapeImpl>(item.shape)->rs.path;
++        auto m = item.shape->transform();
++        auto scale = sqrtf(fabsf(m.e11 * m.e22 - m.e12 * m.e21));
++        groups.push(item.group);
++        lengths.push(tvg::length(path.cmds.data, path.cmds.count, path.pts.data, path.pts.count) * scale);
++    }
++    if (groups.count < 2) return;
++
++    auto total = 0.0f;
++    ARRAY_FOREACH(l, lengths) total += *l;
++    if (total <= 0.0f) return;
++
++    //the range over the whole sequence: one interval, or two when it runs through the end
++    auto begin = trims->begin, end = trims->end;
++    _trimRange(begin, end);
++    float ranges[2][2];
++    auto count = 0;
++    if (begin <= end) {
++        ranges[count][0] = begin; ranges[count++][1] = end;
++    } else {
++        ranges[count][0] = begin; ranges[count++][1] = 1.0f;
++        ranges[count][0] = 0.0f; ranges[count++][1] = end;
++    }
++
++    auto start = 0.0f;
++    for (uint32_t i = 0; i < groups.count; ++i) {
++        auto from = start / total, to = (start + lengths[i]) / total;
++        start += lengths[i];
++        //the parts of the range on this group's paths, local to them
++        float local[2][2];
++        auto parts = 0;
++        for (auto r = 0; r < count; ++r) {
++            auto a = std::max(ranges[r][0], from), b = std::min(ranges[r][1], to);
++            if (b <= a || to <= from) continue;
++            local[parts][0] = (a - from) / (to - from);
++            local[parts++][1] = (b - from) / (to - from);
++        }
++        float lb = 0.0f, le = 0.0f;  //nothing drawn
++        if (parts == 1) {
++            lb = local[0][0];
++            le = local[0][1];
++        } else if (parts == 2) {  //through the end of this group's paths
++            lb = local[0][0];
++            le = local[1][1] + 1.0f;
++        }
++        ARRAY_FOREACH(item, trims->items) {
++            if (item->group == groups[i]) item->shape->trimpath(lb, le, false);
++        }
++    }
+ }
+ 
+ 
+ void LottieBuilder::updateChildren(LottieGroup* parent, float frameNo, Inlist<RenderContext>& contexts)
+ {
+     contexts.head->begin = parent->children.end() - 1;
++    auto pendingTrims = trims.count;
+ 
+     while (!contexts.empty()) {
+         auto ctx = contexts.front();
+@@ -935,6 +1027,13 @@
+         }
+         delete(ctx);
+     }
++
++    //"trim individually" over groups: share it out now that their shapes are built
++    for (auto i = pendingTrims; i < trims.count; ++i) {
++        shareTrim(trims[i]);
++        delete(trims[i]);
++    }
++    trims.count = pendingTrims;
+ }
+ 
+ 
+--- a/src/loaders/lottie/tvgLottieModel.h
++++ b/src/loaders/lottie/tvgLottieModel.h
+@@ -1099,6 +1099,9 @@
+     bool trimpath : 1;      //this group has a trimpath.
+     bool visible : 1;       //this group has visible contents.
+     bool allowMerge : 1;    //if this group is consisted of simple (transformed) shapes.
++    bool reversed : 1;      //its paths are in reverse order for trimming (reverse()).
++
++    void reverse();
+ };
+ 
+ struct LottieRootLayer : LottieGroup
+--- a/src/loaders/lottie/tvgLottieModel.cpp
++++ b/src/loaders/lottie/tvgLottieModel.cpp
+@@ -500,6 +500,7 @@
+     trimpath = false;
+     visible = false;
+     allowMerge = true;
++    reversed = false;
+ }
+ 
+ void LottieGroup::clear()
+@@ -519,17 +520,32 @@
+ }
+ 
+ 
++static void _reverseGroups(LottieGroup* group)
++{
++    ARRAY_FOREACH(c, group->children) {
++        if ((*c)->type != LottieObject::Group) continue;
++        auto child = static_cast<LottieGroup*>(*c);
++        child->reverse();
++        _reverseGroups(child);
++    }
++}
++
++
+ void LottieGroup::prepare()
+ {
+     if (children.count == 0) return;
+ 
+     size_t strokeCnt = 0;
+     size_t fillCnt = 0;
++    auto individual = false;
+ 
+     ARRAY_REVERSE_FOREACH(c, children) {
+         auto child = static_cast<LottieObject*>(*c);
+ 
+-        if (child->type == LottieObject::Type::Trimpath) trimpath = true;
++        if (child->type == LottieObject::Type::Trimpath) {
++            trimpath = true;
++            individual |= static_cast<LottieTrimpath*>(child)->type == LottieTrimpath::Type::Individual;
++        }
+ 
+         /* Figure out if this group is a simple path drawing.
+            In that case, the rendering context can be sharable with the parent's. */
+@@ -569,9 +585,20 @@
+         }
+     }
+ 
+-    //Reverse the drawing order if this group has a trimpath: each run of mergeable children
+-    //(paths) is reversed, so that the paths reach the trimming in their stacking order.
++    //Reverse the drawing order if this group has a trimpath. A trim that takes the paths
++    //individually takes the paths of the groups under it too, so they turn around as well.
+     if (!trimpath) return;
++    reverse();
++    if (individual) _reverseGroups(this);
++}
++
++
++//Each run of mergeable children (paths) is reversed: the builder walks the children backwards,
++//so that they reach the merged path, and the trimming, in their stacking order.
++void LottieGroup::reverse()
++{
++    if (reversed) return;
++    reversed = true;
+ 
+     auto reversible = [&](uint32_t i) {
+         return children[i]->mergeable() && children[i]->type != LottieObject::Transform;

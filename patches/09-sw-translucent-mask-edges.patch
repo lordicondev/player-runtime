@@ -1,0 +1,61 @@
+Subject: sw_engine: translucent shapes in 8-bit (mask) buffers keep what is under their edges
+
+cRasterTranslucentRle() and its AVX and NEON versions, for 8-bit surfaces (the buffers that mattes
+and masks are drawn into), scaled the destination by the inverse of the colour's alpha instead of
+the inverse of the span's alpha (colour alpha x coverage). On the anti-aliased edge of a
+translucent shape drawn over an opaque one, the destination was nearly wiped: the matte got a
+crack along the edge, and the content under it showed through as a thin line (Lordicon doodle
+icons, whose matte pieces fade in one after another), or a whole band for larger opacity steps.
+The 32-bit path already used the span's alpha.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/renderer/cpu_engine/tvgSwRasterCore.cpp
++++ b/src/renderer/cpu_engine/tvgSwRasterCore.cpp
+@@ -198,7 +198,7 @@
+             auto dst = &surface->buf8[span->y * surface->stride + x];
+             if (span->coverage < 255) src = MULTIPLY(span->coverage, c.a);
+             else src = c.a;
+-            auto ialpha = ~c.a;
++            uint8_t ialpha = ~src;  //what the span leaves of the destination, with its coverage
+             for (auto x = 0; x < len; ++x, ++dst) {
+                 *dst = src + MULTIPLY(*dst, ialpha);
+             }
+--- a/src/renderer/cpu_engine/tvgSwRasterSimd.cpp
++++ b/src/renderer/cpu_engine/tvgSwRasterSimd.cpp
+@@ -199,14 +199,14 @@
+     // 8bit grayscale
+     } else if (surface->channelSize == sizeof(uint8_t)) {
+         const auto mask = _mm256_set1_epi16(0x00ff);
+-        const auto ialpha = static_cast<uint8_t>(~c.a);
+-        const auto avxIalpha = _mm256_set1_epi16(ialpha);
+         uint8_t src;
+         for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+             if (!span->fetch(bbox, x, len)) continue;
+             auto dst = &surface->buf8[span->y * surface->stride + x];
+             if (span->coverage < 255) src = MULTIPLY(span->coverage, c.a);
+             else src = c.a;
++            const auto ialpha = static_cast<uint8_t>(~src);  //with the span's coverage
++            const auto avxIalpha = _mm256_set1_epi16(ialpha);
+             const auto avxSrc = _mm256_set1_epi8(src);
+             int32_t i = 0;
+             for (; i <= len - 32; i += 32) {
+@@ -548,8 +548,6 @@
+         }
+     // 8bit grayscale
+     } else if (surface->channelSize == sizeof(uint8_t)) {
+-        const auto ialpha = static_cast<uint8_t>(~c.a);
+-        const auto vIalpha = vdup_n_u8(ialpha);
+         const auto bias = vdupq_n_u16(255);
+         uint8_t src;
+         for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+@@ -557,6 +555,8 @@
+             auto dst = &surface->buf8[span->y * surface->stride + x];
+             if (span->coverage < 255) src = MULTIPLY(span->coverage, c.a);
+             else src = c.a;
++            const auto ialpha = static_cast<uint8_t>(~src);  //with the span's coverage
++            const auto vIalpha = vdup_n_u8(ialpha);
+             const auto vSrc = vdupq_n_u8(src);
+             int32_t i = 0;
+             for (; len - i >= 16; i += 16) {

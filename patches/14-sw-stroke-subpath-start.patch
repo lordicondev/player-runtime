@@ -1,0 +1,27 @@
+Subject: sw_engine: a stroke's subpath that starts where the previous one ended keeps its start
+
+_borderLineTo() skips a point that lies on the border's last point. When _borderMoveTo() begins a
+new subpath, that last point belongs to the previous subpath, so a subpath starting exactly
+where the previous one ended lost its first point: the border's begin tag landed on the wrong
+point and the stroke outline joined the subpaths with a long sliver (Lordicon: a dark wedge
+across the title bar of the "browser" icons and the balcony railing, where two copies of one
+closed path share a stroke).
+
+The check now looks only at points of the current subpath.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/renderer/cpu_engine/tvgSwStroke.cpp
++++ b/src/renderer/cpu_engine/tvgSwStroke.cpp
+@@ -132,8 +132,8 @@
+         // move last point
+         border->pts.last() = to;
+     } else {
+-        // don't add zero-length line_to
+-        if (!border->pts.empty() && _tiny(border->pts.last() - to)) return;
++        // don't add zero-length line_to; the last point of a previous subpath does not count
++        if (border->start >= 0 && border->pts.count > (uint32_t)border->start && _tiny(border->pts.last() - to)) return;
+         _growBorder(border, 1);
+         border->tags[border->pts.count] = SW_STROKE_TAG_POINT;
+         border->pts.push(to);

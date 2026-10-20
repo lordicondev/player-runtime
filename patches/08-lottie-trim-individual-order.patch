@@ -1,0 +1,51 @@
+Subject: lottie: trim paths "individually" in stacking order with three or more paths
+
+LottieGroup::prepare() reverses the order of the paths of a group with trim paths, so that the
+builder, walking the children backwards, appends them to the merged path in stacking order:
+"trim individually" trims that path as one. The loop swapped neighbours while moving forward,
+which carries the first path to the end: a rotation, the same as a reversal only for two paths.
+With three paths the order was 1, 3, 2, and the trim showed the wrong path.
+
+Each run of mergeable children is now reversed.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieModel.cpp
++++ b/src/loaders/lottie/tvgLottieModel.cpp
+@@ -569,23 +569,22 @@
+         }
+     }
+ 
+-    //Reverse the drawing order if this group has a trimpath.
++    //Reverse the drawing order if this group has a trimpath: each run of mergeable children
++    //(paths) is reversed, so that the paths reach the trimming in their stacking order.
+     if (!trimpath) return;
+ 
+-    for (uint32_t i = 0; i < children.count - 1; ) {
+-        auto child2 = children[i + 1];
+-        if (!child2->mergeable() || child2->type == LottieObject::Transform) {
+-            i += 2;
++    auto reversible = [&](uint32_t i) {
++        return children[i]->mergeable() && children[i]->type != LottieObject::Transform;
++    };
++    for (uint32_t i = 0; i < children.count; ) {
++        if (!reversible(i)) {
++            ++i;
+             continue;
+         }
+-        auto child = children[i];
+-        if (!child->mergeable() || child->type == LottieObject::Transform) {
+-            i++;
+-            continue;
+-        }
+-        children[i] = child2;
+-        children[i + 1] = child;
+-        i++;
++        auto j = i;
++        while (j + 1 < children.count && reversible(j + 1)) ++j;
++        for (auto a = i, b = j; a < b; ++a, --b) std::swap(children[a], children[b]);
++        i = j + 1;
+     }
+ }
+ 

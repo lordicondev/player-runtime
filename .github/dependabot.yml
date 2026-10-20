@@ -1,0 +1,11 @@
+# The GitHub Actions of the workflows, pinned to commits: one pull request a month with the new
+# releases (Dependabot updates the commit and the version in the comment).
+version: 2
+updates:
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: monthly
+      groups:
+          actions:
+              patterns: ['*']

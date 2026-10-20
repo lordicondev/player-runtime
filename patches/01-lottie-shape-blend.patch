@@ -1,0 +1,123 @@
+Subject: lottie: apply blend modes of fills and strokes
+
+Lottie fills and strokes (fl, st, gf, gs) carry their own blend mode (bm). ThorVG read it only
+for groups and layers, so e.g. the multiply shading of Lordicon wired icons was drawn as Normal.
+The blend method is stored on the fill/stroke and set on the shape it draws; the opaque-fill
+early exit is skipped for non-Normal fills.
+
+Origin: fills part adapted from thorvg/thorvg PR #4804 "lottie: support blend modes of fills"
+by Jinny You (@tinyjin), https://github.com/thorvg/thorvg/pull/4804 (closed, not merged).
+Strokes added by Lordicon.
+Upstream issue: https://github.com/thorvg/thorvg/issues/4817
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+diff --git a/src/loaders/lottie/tvgLottieBuilder.cpp b/src/loaders/lottie/tvgLottieBuilder.cpp
+index fdc8ea9..54a278a 100644
+--- a/src/loaders/lottie/tvgLottieBuilder.cpp
++++ b/src/loaders/lottie/tvgLottieBuilder.cpp
+@@ -320,6 +320,7 @@ bool LottieBuilder::updateSolidStroke(LottieGroup* parent, LottieObject** child,
+     ctx->merging = nullptr;
+     auto color = stroke->color(frameNo, tween, exps);
+     ctx->propagator->strokeFill(color.r, color.g, color.b, opacity);
++    ctx->propagator->blend(stroke->blendMethod);
+     _update(static_cast<LottieStroke*>(stroke), frameNo, ctx, tween, exps);
+ 
+     return false;
+@@ -336,6 +337,7 @@ bool LottieBuilder::updateGradientStroke(LottieGroup* parent, LottieObject** chi
+ 
+     ctx->merging = nullptr;
+     if (auto val = stroke->fill(frameNo, opacity, tween, exps)) ctx->propagator->strokeFill(val);
++    ctx->propagator->blend(stroke->blendMethod);
+     _update(static_cast<LottieStroke*>(stroke), frameNo, ctx, tween, exps);
+ 
+     return false;
+@@ -348,7 +350,7 @@ bool LottieBuilder::updateSolidFill(LottieGroup* parent, LottieObject** child, f
+     auto opacity = fill->opacity(frameNo, tween, exps);
+ 
+     //interrupted by fully opaque, stop the current rendering
+-    if (ctx->fragment == RenderFragment::ByFill && opacity == 255) return true;
++    if (ctx->fragment == RenderFragment::ByFill && opacity == 255 && fill->blendMethod == BlendMethod::Normal) return true;
+     if (opacity == 0) return false;
+ 
+     if (fragmented(parent, child, contexts, ctx, RenderFragment::ByFill)) return false;
+@@ -357,6 +359,7 @@ bool LottieBuilder::updateSolidFill(LottieGroup* parent, LottieObject** child, f
+     auto color = fill->color(frameNo, tween, exps);
+     ctx->propagator->fill(color.r, color.g, color.b, opacity);
+     ctx->propagator->fillRule(fill->rule);
++    ctx->propagator->blend(fill->blendMethod);
+ 
+     if (ctx->propagator->strokeWidth() > 0) ctx->propagator->order(true);
+ 
+@@ -370,7 +373,7 @@ bool LottieBuilder::updateGradientFill(LottieGroup* parent, LottieObject** child
+     auto opacity = fill->opacity(frameNo, tween, exps);
+ 
+     //interrupted by fully opaque, stop the current rendering
+-    if (ctx->fragment == RenderFragment::ByFill && fill->opaque && opacity == 255) return true;
++    if (ctx->fragment == RenderFragment::ByFill && fill->opaque && opacity == 255 && fill->blendMethod == BlendMethod::Normal) return true;
+ 
+     if (fragmented(parent, child, contexts, ctx, RenderFragment::ByFill)) return false;
+ 
+@@ -378,6 +381,7 @@ bool LottieBuilder::updateGradientFill(LottieGroup* parent, LottieObject** child
+ 
+     if (auto val = fill->fill(frameNo, opacity, tween, exps)) ctx->propagator->fill(val);
+     ctx->propagator->fillRule(fill->rule);
++    ctx->propagator->blend(fill->blendMethod);
+ 
+     if (ctx->propagator->strokeWidth() > 0) ctx->propagator->order(true);
+ 
+diff --git a/src/loaders/lottie/tvgLottieModel.h b/src/loaders/lottie/tvgLottieModel.h
+index e9beabe..ca6a8ef 100644
+--- a/src/loaders/lottie/tvgLottieModel.h
++++ b/src/loaders/lottie/tvgLottieModel.h
+@@ -758,6 +758,7 @@ struct LottieSolid : LottieObject
+ {
+     LottieSolid(LottieObject::Type type) : LottieObject(type) {}
+ 
++    BlendMethod blendMethod = BlendMethod::Normal;
+     LottieColor color = RGB32{255, 255, 255};
+     LottieOpacity opacity = 255;
+ 
+@@ -857,6 +858,7 @@ struct LottieGradient : LottieObject
+     LottieFloat angle = 0.0f;
+     LottieOpacity opacity = 255;
+     LottieColorStop colorStops;
++    BlendMethod blendMethod = BlendMethod::Normal;
+     uint8_t id = 0; //1: linear, 2: radial
+     bool opaque = true; //fully opaque or not
+ };
+diff --git a/src/loaders/lottie/tvgLottieParser.cpp b/src/loaders/lottie/tvgLottieParser.cpp
+index 242d52a..a2893c5 100644
+--- a/src/loaders/lottie/tvgLottieParser.cpp
++++ b/src/loaders/lottie/tvgLottieParser.cpp
+@@ -617,6 +617,7 @@ LottieSolidFill* LottieParser::parseSolidFill()
+         else if (KEY_AS("o")) parseProperty(fill->opacity, fill);
+         else if (KEY_AS("fillEnabled")) fill->hidden |= !getBool();
+         else if (KEY_AS("r")) fill->rule = (getInt() == 1) ? FillRule::NonZero : FillRule::EvenOdd;
++        else if (KEY_AS("bm")) fill->blendMethod = (BlendMethod) getInt();
+         else skip();
+     }
+     return fill;
+@@ -655,6 +656,7 @@ LottieSolidStroke* LottieParser::parseSolidStroke()
+         else if (KEY_AS("lj")) stroke->join = (StrokeJoin) (getInt() - 1);
+         else if (KEY_AS("ml")) stroke->miterLimit = getFloat();
+         else if (KEY_AS("fillEnabled")) stroke->hidden |= !getBool();
++        else if (KEY_AS("bm")) stroke->blendMethod = (BlendMethod) getInt();
+         else if (KEY_AS("d")) parseStrokeDash(stroke);
+         else skip();
+     }
+@@ -767,6 +769,7 @@ LottieGradientFill* LottieParser::parseGradientFill()
+     while (auto key = nextObjectKey()) {
+         if (parseCommon(fill, key)) continue;
+         else if (KEY_AS("r")) fill->rule = (getInt() == 1) ? FillRule::NonZero : FillRule::EvenOdd;
++        else if (KEY_AS("bm")) fill->blendMethod = (BlendMethod) getInt();
+         else parseGradient(fill, key);
+     }
+ 
+@@ -789,6 +792,7 @@ LottieGradientStroke* LottieParser::parseGradientStroke()
+         else if (KEY_AS("ml")) stroke->miterLimit = getFloat();
+         else if (KEY_AS("w")) parseProperty(stroke->width, stroke);
+         else if (KEY_AS("d")) parseStrokeDash(stroke);
++        else if (KEY_AS("bm")) stroke->blendMethod = (BlendMethod) getInt();
+         else parseGradient(stroke, key);
+     }
+     stroke->prepare();

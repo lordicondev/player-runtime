@@ -1,0 +1,28 @@
+Subject: sw_engine: translucent images in 8-bit (matte, mask) surfaces composite over what is there
+
+_rasterDirectImage() drew a translucent image (a scene with opacity: a precomp layer fading in,
+say) into an 8-bit surface as INTERPOLATE8(alpha, dst, opacity): a mix of the image and the
+destination instead of the image over the destination. Where the image was transparent the
+destination lost part of its coverage, and where two such scenes overlapped the matte got
+holes. A matte made of cross-fading precomps came out speckled or nearly empty (Lordicon:
+gradient icons, whose gradient is matted by the icon's line art, lost most of their shape for
+part of the animation).
+
+The image's alpha is now scaled by the opacity and composited over the destination, as the
+opaque path and the 32-bit path do.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/renderer/cpu_engine/tvgSwRaster.cpp
++++ b/src/renderer/cpu_engine/tvgSwRaster.cpp
+@@ -950,7 +950,8 @@
+                 }
+             } else {
+                 for (auto dst = dbuffer; dst < dbuffer + w; dst++, src++) {
+-                    *dst = INTERPOLATE8(A(*src), *dst, opacity);
++                    auto tmp = MULTIPLY(A(*src), opacity);
++                    *dst = tmp + MULTIPLY(*dst, 255 - tmp);
+                 }
+             }
+         }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Models: many icons</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="./main.css" />
+        <script type="module" src="/04-models.ts"></script>
+    </head>
+
+    <body>
+        <p><a href="/">Examples</a></p>
+        <h1>Models: many icons</h1>
+        <p>
+            <code>runtime.model(json)</code> parses an icon once; <code>model.icon()</code> draws
+            from it with a playback and look of its own, at almost no cost in time or memory (50 to
+            470 KB less for each icon after the first). Untick “one model per file” to load every
+            icon on its own, as <code>runtime.load()</code> does. Every icon loops; one clock ticks
+            them all and draws on the main thread.
+        </p>
+        <div class="controls">
+            <label>icons <input type="number" id="count" min="1" max="300" value="50" /></label>
+            <label><input type="checkbox" id="shared" checked /> one model per file</label>
+            <label>
+                size
+                <select id="size">
+                    <option>48</option>
+                    <option selected>96</option>
+                    <option>192</option>
+                </select>
+            </label>
+        </div>
+        <p class="stats" id="stats"></p>
+        <div class="tiles" id="stage"></div>
+    </body>
+</html>

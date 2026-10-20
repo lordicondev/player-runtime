@@ -1,0 +1,32 @@
+Subject: renderer: replace the global operator new/delete only on request
+
+tvgInitializer.cpp replaced the global operator new, new[], delete and delete[] (with
+tvg::malloc and tvg::free, that is malloc and free). In a static library linked into an app, as
+the iOS pod is, that replaces them for the whole app: every C++ allocation of React Native and
+other libraries, and a link error with any other library that does the same. The replacement now
+needs THORVG_GLOBAL_NEW; without it the standard operators are used, which call malloc and free
+too.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+diff --git a/src/renderer/tvgInitializer.cpp b/src/renderer/tvgInitializer.cpp
+--- a/src/renderer/tvgInitializer.cpp
++++ b/src/renderer/tvgInitializer.cpp
+@@ -138,6 +138,10 @@
+ }
+ 
+ 
++// Replacing the global operators is the application's choice: in a static library (an iOS pod)
++// it would replace them for the whole app, and clash with any other library that does too.
++#ifdef THORVG_GLOBAL_NEW
++
+ void* operator new(std::size_t size)
+ {
+     return tvg::malloc(size);
+@@ -160,3 +164,5 @@
+ {
+     tvg::free(ptr);
+ }
++
++#endif

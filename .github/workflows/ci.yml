@@ -1,0 +1,79 @@
+name: CI
+
+on:
+    push:
+        branches: ['main', 'develop']
+    pull_request:
+        branches: ['main', 'develop']
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  submodules: true
+            - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+              with:
+                  node-version: 22.x
+                  cache: 'npm'
+            - uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+              with:
+                  version: 6.0.12
+            - run: sudo apt-get install -y ninja-build
+            - run: npm ci
+            - run: npm run build:wasm
+            - run: npm run check
+            - run: npm test
+            - run: npm run build
+            - name: Native build, C API test, golden frames
+              run: |
+                  cmake -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
+                  cmake --build build/native
+                  build/native/tvgicon examples/icons/lock.json --size 96 --out frame.png
+                  build/native/capitest examples/icons
+                  build/native/threadtest 20 examples/icons/lock.json examples/icons/coins.json
+                  mkdir -p build/golden
+                  build/native/goldens test/golden/cases.txt examples/icons build/golden
+                  LORDICON_NATIVE_FRAMES=build/golden npx vitest run src/golden.test.ts
+            - name: Native build from the npm package
+              run: |
+                  npm pack --pack-destination build
+                  tar xzf build/lordicon-runtime-*.tgz -C build
+                  test ! -d build/package/thorvg && test -f build/package/thorvg-src/inc/thorvg.h
+                  cmake -S build/package -B build/package-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+                  cmake --build build/package-native
+            # The examples outside the browser: Node (the built dist) and a CMake project.
+            - name: Examples (Node, native)
+              run: |
+                  node examples/node/frames.mjs examples/icons/download.json build/frames 64 2
+                  cmake -S examples/native -B build/example-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+                  cmake --build build/example-native
+                  build/example-native/render examples/icons/download.json build/frames
+
+    # The tools and tests under AddressSanitizer with UndefinedBehaviorSanitizer, and under
+    # ThreadSanitizer (render threads: threadtest).
+    sanitizers:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                sanitizer: [address, thread]
+        env:
+            LSAN_OPTIONS: suppressions=${{ github.workspace }}/cli/lsan.supp
+            TSAN_OPTIONS: halt_on_error=1
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  submodules: true
+            - run: sudo apt-get install -y ninja-build
+            - name: Build
+              run: |
+                  cmake -B build/san -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLORDICON_SANITIZE=${{ matrix.sanitizer }}
+                  cmake --build build/san
+            - name: Run
+              run: |
+                  build/san/capitest examples/icons
+                  mkdir -p build/golden
+                  build/san/goldens test/golden/cases.txt examples/icons build/golden
+                  build/san/threadtest 5 examples/icons/lock.json examples/icons/coins.json examples/icons/wired-gradient-3094-marketing-letter-hover-pinch.json

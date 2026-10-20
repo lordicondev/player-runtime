@@ -1,0 +1,157 @@
+Subject: lottie: a trim within the segment an earlier trim left wraps inside that segment
+
+Trims one after another on the same path compose: each cuts what the earlier one left. The
+builder folded them into one range of the whole path (begin + length * inner range). When the
+later trim's range, moved by its offset, wraps past the end of the segment the earlier trim left,
+After Effects and lottie-web continue it at that segment's start, so it is two pieces of an open
+path. The single folded range wrapped around the whole closed path instead and drew the part the
+earlier trim had cut away (Lordicon: the flap of the doodle envelopes drawn as a wave, the
+circles of the doodle avatars).
+
+RenderTrimPath keeps up to three more ranges of the same path; trim() cuts the path by each.
+The builder splits a wrapping inner range into two before mapping it onto the segment. When the
+earlier trim keeps the whole path, the path stays closed and the range wraps as before.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieBuilder.cpp
++++ b/src/loaders/lottie/tvgLottieBuilder.cpp
+@@ -841,20 +841,52 @@
+     float begin, end;
+     trimpath->segment(frameNo, begin, end, tween, exps);
+ 
+-    if (to<ShapeImpl>(ctx->propagator)->rs.stroke) {
++    RenderTrimPath trim{begin, end, trimpath->type == LottieTrimpath::Type::Simultaneous};
++
++    //the trims below this one cut the segment it leaves. When that segment is a part of the path
++    //(an open path), a range of theirs that wraps past its end continues at its start, so it
++    //splits into two ranges. The whole path stays closed: the range wraps around it as it is.
++    if (auto stroke = to<ShapeImpl>(ctx->propagator)->rs.stroke) {
++        auto& inner = stroke->trim;
+         auto length = fabsf(begin - end);
+-        auto tmp = begin;
+-        begin = (length * to<ShapeImpl>(ctx->propagator)->rs.stroke->trim.begin) + tmp;
+-        end = (length * to<ShapeImpl>(ctx->propagator)->rs.stroke->trim.end) + tmp;
++        float ranges[(RenderTrimPath::MORE + 1) * 2];
++        uint8_t cnt = 0;
++        auto add = [&](float b, float e) {
++            if (cnt == RenderTrimPath::MORE + 1) return;
++            ranges[cnt * 2] = begin + length * b;
++            ranges[cnt * 2 + 1] = begin + length * e;
++            ++cnt;
++        };
++        auto split = [&](float b, float e) {
++            if (b > e) std::swap(b, e);
++            if (length >= 1.0f || e - b >= 1.0f || (b >= 0.0f && e <= 1.0f)) {
++                add(b, e);
++                return;
++            }
++            auto shift = floorf(b);
++            b -= shift;
++            e -= shift;
++            if (e <= 1.0f) add(b, e);
++            else {
++                add(b, 1.0f);
++                add(0.0f, e - 1.0f);
++            }
++        };
++        split(inner.begin, inner.end);
++        for (uint8_t i = 0; i < inner.moreCnt; ++i) split(inner.more[i * 2], inner.more[i * 2 + 1]);
++        trim.begin = ranges[0];
++        trim.end = ranges[1];
++        trim.moreCnt = cnt - 1;
++        for (uint8_t i = 2; i < cnt * 2; ++i) trim.more[i - 2] = ranges[i];
+     }
+ 
+-    ctx->propagator->trimpath(begin, end, trimpath->type == LottieTrimpath::Type::Simultaneous);
++    to<ShapeImpl>(ctx->propagator)->trimpath(trim);
+     ctx->merging = nullptr;
+ 
+     if (trimpath->type == LottieTrimpath::Type::Individual) {
+         auto trims = new RenderTrimGroup;
+-        trims->begin = begin;
+-        trims->end = end;
++        trims->begin = trim.begin;
++        trims->end = trim.end;
+         this->trims.push(trims);
+         ctx->trims = trims;
+     }
+--- a/src/renderer/tvgRender.cpp
++++ b/src/renderer/tvgRender.cpp
+@@ -685,11 +685,10 @@
+ }
+ 
+ 
+-bool RenderTrimPath::trim(const RenderPath& in, RenderPath& out) const
++static void _trimRange(const RenderPath& in, RenderPath& out, float begin, float end, bool simultaneous)
+ {
+-    if (in.pts.count < 2 || tvg::zero(begin - end)) return false;
++    if (tvg::zero(begin - end)) return;
+ 
+-    float begin = this->begin, end = this->end;
+     _get(begin, end);
+ 
+     out.cmds.reserve(in.cmds.count * 2);
+@@ -736,6 +735,15 @@
+     } else {
+         _trim(in.cmds.data, in.cmds.count, in.pts.data, in.pts.count, begin, end, false, out);
+     }
++}
++
++
++bool RenderTrimPath::trim(const RenderPath& in, RenderPath& out) const
++{
++    if (in.pts.count < 2) return false;
++
++    _trimRange(in, out, begin, end, simultaneous);
++    for (uint8_t i = 0; i < moreCnt; ++i) _trimRange(in, out, more[i * 2], more[i * 2 + 1], simultaneous);
+ 
+     return out.pts.count >= 2;
+ }
+--- a/src/renderer/tvgRender.h
++++ b/src/renderer/tvgRender.h
+@@ -342,13 +342,26 @@
+     float begin = 0.0f;
+     float end = 1.0f;
+     bool simultaneous = true;
++    //further ranges kept from trims applied one after another (Lottie): begin/end pairs
++    static constexpr uint8_t MORE = 3;
++    float more[MORE * 2] = {};
++    uint8_t moreCnt = 0;
+ 
+     bool valid()
+     {
+-        if (begin != 0.0f || end != 1.0f) return true;
++        if (begin != 0.0f || end != 1.0f || moreCnt > 0) return true;
+         return false;
+     }
+ 
++    bool same(const RenderTrimPath& rhs) const
++    {
++        if (!tvg::equal(begin, rhs.begin) || !tvg::equal(end, rhs.end) || simultaneous != rhs.simultaneous || moreCnt != rhs.moreCnt) return false;
++        for (uint8_t i = 0; i < moreCnt * 2; ++i) {
++            if (!tvg::equal(more[i], rhs.more[i])) return false;
++        }
++        return true;
++    }
++
+     bool trim(const RenderPath& in, RenderPath& out) const;
+ };
+ 
+--- a/src/renderer/tvgShape.h
++++ b/src/renderer/tvgShape.h
+@@ -191,11 +191,11 @@
+     void trimpath(const RenderTrimPath& trim)
+     {
+         if (!rs.stroke) {
+-            if (trim.begin == 0.0f && trim.end == 1.0f) return;
++            if (trim.begin == 0.0f && trim.end == 1.0f && trim.moreCnt == 0) return;
+             rs.stroke = new RenderStroke();
+         }
+ 
+-        if (tvg::equal(rs.stroke->trim.begin, trim.begin) && tvg::equal(rs.stroke->trim.end, trim.end) && rs.stroke->trim.simultaneous == trim.simultaneous) return;
++        if (rs.stroke->trim.same(trim)) return;
+ 
+         rs.stroke->trim = trim;
+         impl.mark(RenderUpdateFlag::Path);

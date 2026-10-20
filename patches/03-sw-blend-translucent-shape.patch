@@ -1,0 +1,79 @@
+Subject: cpu_engine: fix blending of translucent shapes
+
+A shape with a blend method and opacity < 255 passed its premultiplied color to the blender and
+never mixed the result back with the target: multiply at 50% gave S*D*a instead of
+(1 - a)*D + a*B(S, D). The blender now gets the opaque color and the result is interpolated
+by alpha * coverage, like the image paths do.
+
+Origin: Lordicon. Not reported upstream.
+Test: patches/cases (A, B).
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+diff --git a/src/renderer/cpu_engine/tvgSwRaster.cpp b/src/renderer/cpu_engine/tvgSwRaster.cpp
+index 374b30e..71a371c 100644
+--- a/src/renderer/cpu_engine/tvgSwRaster.cpp
++++ b/src/renderer/cpu_engine/tvgSwRaster.cpp
+@@ -288,6 +288,15 @@ static bool _rasterMattedRect(SwSurface* surface, const RenderRegion& bbox, cons
+     return true;
+ }
+ 
++//Translucent sources: blend the opaque color, then mix with the target by the source alpha
++//(W3C: (1 - as) * D + as * B(S, D)). c is alpha-premultiplied here.
++static uint32_t _opaqueBlendColor(SwSurface* surface, const RenderColor& c)
++{
++    if (c.a == 255 || c.a == 0) return surface->join(c.r, c.g, c.b, c.a);
++    auto unpremul = [&](uint8_t v) { return (uint8_t) std::min(v * 255u / c.a, 255u); };
++    return surface->join(unpremul(c.r), unpremul(c.g), unpremul(c.b), 255);
++}
++
+ static bool _rasterBlendingRect(SwSurface* surface, const RenderRegion& bbox, const RenderColor& c)
+ {
+     if (surface->channelSize != sizeof(uint32_t)) {
+@@ -295,13 +304,19 @@ static bool _rasterBlendingRect(SwSurface* surface, const RenderRegion& bbox, co
+         return false;
+     }
+ 
+-    auto color = surface->join(c.r, c.g, c.b, c.a);
++    auto color = _opaqueBlendColor(surface, c);
+     auto buffer = surface->buf32 + (bbox.min.y * surface->stride) + bbox.min.x;
+ 
+     for (uint32_t y = 0; y < bbox.h(); ++y) {
+         auto dst = &buffer[y * surface->stride];
+-        for (uint32_t x = 0; x < bbox.w(); ++x, ++dst) {
+-            *dst = surface->blender(surface, color, *dst);
++        if (c.a == 255) {
++            for (uint32_t x = 0; x < bbox.w(); ++x, ++dst) {
++                *dst = surface->blender(surface, color, *dst);
++            }
++        } else {
++            for (uint32_t x = 0; x < bbox.w(); ++x, ++dst) {
++                *dst = INTERPOLATE(surface->blender(surface, color, *dst), *dst, c.a);
++            }
+         }
+     }
+     return true;
+@@ -447,20 +462,21 @@ static bool _rasterBlendingRle(SwSurface* surface, const SwRle* rle, const Rende
+         return false;
+     }
+ 
+-    auto color = surface->join(c.r, c.g, c.b, c.a);
++    auto color = _opaqueBlendColor(surface, c);
+     const SwSpan* end;
+     int32_t x, len;
+ 
+     for (auto span = rle->fetch(bbox, &end); span < end; ++span) {
+         if (!span->fetch(bbox, x, len)) continue;
+         auto dst = &surface->buf32[span->y * surface->stride + x];
+-        if (span->coverage == 255) {
++        auto alpha = MULTIPLY(span->coverage, c.a);
++        if (alpha == 255) {
+             for (auto x = 0; x < len; ++x, ++dst) {
+                 *dst = surface->blender(surface, color, *dst);
+             }
+         } else {
+             for (auto x = 0; x < len; ++x, ++dst) {
+-                *dst = INTERPOLATE(surface->blender(surface, color, *dst), *dst, span->coverage);
++                *dst = INTERPOLATE(surface->blender(surface, color, *dst), *dst, alpha);
+             }
+         }
+     }

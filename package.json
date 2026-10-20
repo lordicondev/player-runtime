@@ -1,0 +1,76 @@
+{
+    "name": "@lordicon/runtime",
+    "version": "0.1.0",
+    "description": "The engine of Lordicon players: icons rendered by ThorVG to pixels, natively (C++) and in WebAssembly, with live colours and stroke.",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/lordicondev/player-runtime.git"
+    },
+    "bugs": "https://github.com/lordicondev/player-runtime/issues",
+    "homepage": "https://lordicon.com/",
+    "keywords": [
+        "lordicon",
+        "lottie",
+        "icon",
+        "animation",
+        "thorvg",
+        "webassembly"
+    ],
+    "author": "Lordicon <dev@lordicon.com>",
+    "license": "MIT",
+    "type": "module",
+    "sideEffects": false,
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./lordicon.wasm": "./dist/lordicon.wasm",
+        "./package.json": "./package.json"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist",
+        "core",
+        "CMakeLists.txt",
+        "thorvg-src",
+        "patches/*.patch",
+        "README.md",
+        "LICENSE.md",
+        "THIRD_PARTY.md",
+        "CHANGELOG.md"
+    ],
+    "publishConfig": {
+        "access": "public"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "start": "vite --config vite-examples.config.ts",
+        "build:wasm": "scripts/build-wasm.sh",
+        "vendor:thorvg": "scripts/vendor-thorvg.sh",
+        "build": "vite build",
+        "test": "vitest run",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "check:types": "tsc --noEmit",
+        "check": "npm run check:types && npm run lint && npm run format:check",
+        "prepack": "scripts/prepack.sh",
+        "prepublishOnly": "npm run check && npm test"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^26.6.2",
+        "eslint": "^10.11.0",
+        "globals": "^17.12.0",
+        "prettier": "^3.9.9",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.70.1",
+        "vite": "^8.3.0",
+        "vite-plugin-dts": "^5.1.1",
+        "vitest": "^5.0.1"
+    }
+}

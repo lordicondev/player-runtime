@@ -1,0 +1,9 @@
+dist/
+build/
+thorvg/
+thorvg-src/
+src/wasm/lordicon.js
+package-lock.json
+LICENSE.md
+patches/
+examples/icons/

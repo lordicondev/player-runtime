@@ -1,0 +1,29 @@
+Subject: cpu_engine: fix matted blending of translucent images
+
+_rasterDirectMattedBlendingImage() passed the premultiplied source to the blender, so a
+translucent scene with a blend method inside a matted layer came out too dark. Same fix as
+02 (opaque, unpremultiplied source), on the path 02 does not cover.
+
+Origin: Lordicon, following the approach of thorvg/thorvg PR #4884 by
+Shiny (@ShinyChang). Not reported upstream.
+Test: patches/cases (G, H).
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+diff --git a/src/renderer/cpu_engine/tvgSwRaster.cpp b/src/renderer/cpu_engine/tvgSwRaster.cpp
+index 71a371c..2741013 100644
+--- a/src/renderer/cpu_engine/tvgSwRaster.cpp
++++ b/src/renderer/cpu_engine/tvgSwRaster.cpp
+@@ -972,11 +972,11 @@ static bool _rasterDirectMattedBlendingImage(SwSurface* surface, const SwImage&
+         auto src = sbuffer;
+         if (opacity == 255) {
+             for (auto dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize) {
+-                *dst = INTERPOLATE(surface->blender(surface, *src, *dst), *dst, MULTIPLY(A(*src), alpha(cmp)));
++                *dst = INTERPOLATE(surface->blender(surface, (UNPREMULTIPLY(*src) | 0xff000000), *dst), *dst, MULTIPLY(A(*src), alpha(cmp)));
+             }
+         } else {
+             for (auto dst = dbuffer; dst < dbuffer + w; ++dst, ++src, cmp += csize) {
+-                *dst = INTERPOLATE(surface->blender(surface, *src, *dst), *dst, MULTIPLY(MULTIPLY(A(*src), alpha(cmp)), opacity));
++                *dst = INTERPOLATE(surface->blender(surface, (UNPREMULTIPLY(*src) | 0xff000000), *dst), *dst, MULTIPLY(MULTIPLY(A(*src), alpha(cmp)), opacity));
+             }
+         }
+         cbuffer += compositor->image.stride * csize;

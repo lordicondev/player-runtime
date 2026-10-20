@@ -1,0 +1,5 @@
+# LeakSanitizer suppressions for the tools (LSAN_OPTIONS=suppressions=cli/lsan.supp).
+# ThorVG keeps a memory pool per thread that rendered, until the engine terminates, and frees
+# them only when no canvas is left. threadtest starts new threads every round, so their pools
+# are left at exit. The players render on a fixed set of threads: this does not grow there.
+leak:mpoolReq

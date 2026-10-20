@@ -1,0 +1,79 @@
+Subject: lottie: interpolate a path between an open and a closed keyframe
+
+LottiePathSet::dispatch() interpolates two keyframes of a path only when they have the same
+number of points; otherwise it holds the start keyframe until the next one. A keyframe whose
+path is closed has a closing segment more (three points) than an open one with the same
+vertices, so a path animated from an open to a closed shape (or back) froze for the whole
+segment and jumped at its end (Lordicon: 170 public icons have such keyframes; e.g. a body
+that should grow stayed still, then snapped to full size).
+
+Such keyframes now interpolate, with the start keyframe's commands (open or closed), as After
+Effects and lottie-web do. A closed start's closing segment moves to the open end's last and
+first points.
+
+Origin: Lordicon.
+Base: thorvg/thorvg main 72a66415 (1.2.0). License: MIT, like ThorVG.
+---
+--- a/src/loaders/lottie/tvgLottieProperty.cpp
++++ b/src/loaders/lottie/tvgLottieProperty.cpp
+@@ -296,6 +296,23 @@
+ }
+ 
+ //return false means requiring the interpolation
++//Two keyframes of one path, one open and one closed: the closed one has a closing segment more
++//(three points). They still interpolate, with the start keyframe's shape, as After Effects does.
++static bool _closing(const PathSet& s, const PathSet& e)
++{
++    return s.ptsCnt + 3 == e.ptsCnt || e.ptsCnt + 3 == s.ptsCnt;
++}
++
++
++//The end keyframe's point for the start's point i; past an open end (the start's closing
++//segment), its last and first points.
++static inline Point _end(const PathSet& e, int i)
++{
++    if (i < e.ptsCnt) return e.pts[i];
++    return (i == e.ptsCnt) ? e.pts[e.ptsCnt - 1] : e.pts[0];
++}
++
++
+ bool LottiePathSet::dispatch(float frameNo, PathSet*& path, LottieScalarFrame<PathSet>*& frame, float& t)
+ {
+     if (!frames) path = &value;
+@@ -305,7 +322,7 @@
+         auto key = LottieProperty::bsearch(&frames->data->no, frames->count, sizeof(*frames->data), frameNo);
+         frame = frames->data + key;
+         if (tvg::equal(frame->no, frameNo)) path = &frame->value;
+-        else if (frame->value.ptsCnt != (frame + 1)->value.ptsCnt) {
++        else if (frame->value.ptsCnt != (frame + 1)->value.ptsCnt && !_closing(frame->value, (frame + 1)->value)) {
+             path = &frame->value;
+         } else {
+             t = (frameNo - frame->no) / ((frame + 1)->no - frame->no);
+@@ -331,10 +348,10 @@
+ 
+     //interpolate 2 frames
+     auto s = frame->value.pts;
+-    auto e = (frame + 1)->value.pts;
++    auto& e = (frame + 1)->value;
+ 
+-    for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s, ++e) {
+-        auto pt = tvg::lerp(*s, *e, t);
++    for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s) {
++        auto pt = tvg::lerp(*s, _end(e, i), t);
+         if (transform) pt *= *transform;
+         out.pts.push(pt);
+     }
+@@ -362,10 +379,10 @@
+     in.pts.reserve(frame->value.ptsCnt);
+ 
+     auto s = frame->value.pts;
+-    auto e = (frame + 1)->value.pts;
++    auto& e = (frame + 1)->value;
+ 
+-    for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s, ++e) {
+-        auto pt = tvg::lerp(*s, *e, t);
++    for (auto i = 0; i < frame->value.ptsCnt; ++i, ++s) {
++        auto pt = tvg::lerp(*s, _end(e, i), t);
+         if (transform) pt *= *transform;
+         in.pts.push(pt);
+     }

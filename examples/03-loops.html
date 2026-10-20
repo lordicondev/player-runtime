@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <title>Loops and events</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="./main.css" />
+        <script type="module" src="/03-loops.ts"></script>
+    </head>
+
+    <body>
+        <p><a href="/">Examples</a></p>
+        <h1>Loops and events</h1>
+        <p>
+            <code>playback({ loop, rest })</code> loops a segment in the runtime, resting on its
+            last frame between rounds; the caller only ticks. <code>tick()</code> returns what
+            happened: a new frame to draw, a round ended (<code>loop</code>), the segment ended
+            (<code>complete</code>). Turning the loop off ends the round it is in.
+        </p>
+        <div class="controls" id="controls"></div>
+        <div id="stage"></div>
+        <pre id="log"></pre>
+    </body>
+</html>

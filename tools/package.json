@@ -1,0 +1,12 @@
+{
+    "name": "runtime-tools",
+    "private": true,
+    "type": "module",
+    "description": "Development tools: reference comparison (player-internal in Chromium), samples, timings.",
+    "dependencies": {
+        "@lordicon/internal": "0.5.0",
+        "@lordicon/utils-lottie": "2.0.0",
+        "playwright": "^1.56.0",
+        "pngjs": "^7.0.0"
+    }
+}
