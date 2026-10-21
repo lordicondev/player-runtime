@@ -447,6 +447,39 @@ void rewriteShapes(rj::Value& layers, rj::Document::AllocatorType& a, LoadStats&
     }
 }
 
+void setFrame(rj::Value& v, double frame)
+{
+    if (frame == std::floor(frame)) v.SetInt64((int64_t)frame);
+    else v.SetDouble(frame);
+}
+
+// A file narrowed to one state (ip, op around it, as lordicon.com often gives it) still holds
+// every state its markers name: its frames widen to them, as the Lordicon players do, before and
+// after. Only when a marker starts outside the file, so a whole file stays as it is: a marker's
+// end is not trusted for that (some public icons have one running far past op, dr 903 at op 281).
+// A marker plays to tm + dr.
+void widenToMarkers(rj::Document& doc)
+{
+    auto ip = doc.FindMember("ip"), op = doc.FindMember("op"), markers = doc.FindMember("markers");
+    if (ip == doc.MemberEnd() || op == doc.MemberEnd() || markers == doc.MemberEnd()) return;
+    if (!ip->value.IsNumber() || !op->value.IsNumber() || !markers->value.IsArray()) return;
+    double first = ip->value.GetDouble(), last = op->value.GetDouble();
+    bool outside = false;
+    for (auto& m : markers->value.GetArray()) {
+        auto tm = m.IsObject() ? m.FindMember("tm") : m.MemberEnd();
+        if (tm == m.MemberEnd() || !tm->value.IsNumber()) continue;
+        auto dr = m.FindMember("dr");
+        double begin = tm->value.GetDouble();
+        double end = begin + (dr != m.MemberEnd() && dr->value.IsNumber() ? dr->value.GetDouble() : 0) + 1;
+        if (begin < ip->value.GetDouble() || begin >= op->value.GetDouble()) outside = true;
+        first = std::min(first, begin);
+        last = std::max(last, end);
+    }
+    if (!outside) return;
+    setFrame(ip->value, first);
+    setFrame(op->value, last);
+}
+
 }  // namespace
 
 // ---- Model ----------------------------------------------------------------------------
@@ -486,6 +519,7 @@ struct Model::Impl {
     tvg::SwCanvas* canvas = nullptr;
     float w = 0, h = 0;
     float ip = 0;  // first frame: ThorVG counts frames from it, we count absolute ones
+    float fr = 0;  // frame rate, as the file says
 
     uint32_t* target = nullptr;
     uint32_t tw = 0, th = 0, ts = 0;
@@ -804,7 +838,9 @@ std::shared_ptr<Model> Model::load(const char* json, size_t size, const LoadOpti
         doc.Parse(json, size);
         if (doc.HasParseError() || !doc.IsObject()) return nullptr;
         auto t1 = nowMs();
+        widenToMarkers(doc);
         if (doc.HasMember("ip") && doc["ip"].IsNumber()) impl->ip = (float)doc["ip"].GetDouble();
+        if (doc.HasMember("fr") && doc["fr"].IsNumber()) impl->fr = (float)doc["fr"].GetDouble();
         if (!impl->preprocess(doc, opts, st)) return nullptr;
         rj::StringBuffer out;
         Writer w(out);
@@ -819,6 +855,8 @@ std::shared_ptr<Model> Model::load(const char* json, size_t size, const LoadOpti
         doc.Parse(json, size);
         if (!doc.HasParseError() && doc.IsObject() && doc.HasMember("ip") && doc["ip"].IsNumber())
             impl->ip = (float)doc["ip"].GetDouble();
+        if (!doc.HasParseError() && doc.IsObject() && doc.HasMember("fr") && doc["fr"].IsNumber())
+            impl->fr = (float)doc["fr"].GetDouble();
     }
     st.outBytes = impl->json.size();
 
@@ -850,7 +888,11 @@ std::shared_ptr<Model> Model::load(const char* json, size_t size, const LoadOpti
 
 float Model::width() const { return impl->w; }
 float Model::height() const { return impl->h; }
-float Model::frameRate() const { return impl->animation->totalFrame() / impl->animation->duration(); }
+float Model::frameRate() const
+{
+    // The file's own: totalFrame / duration is a float off (59.999996 for 331 frames at 60).
+    return impl->fr > 0 ? impl->fr : impl->animation->totalFrame() / impl->animation->duration();
+}
 float Model::totalFrames() const { return impl->animation->totalFrame(); }
 float Model::firstFrame() const { return impl->ip; }
 const std::vector<Marker>& Model::markers() const { return impl->markers; }

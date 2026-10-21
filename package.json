@@ -1,6 +1,6 @@
 {
     "name": "@lordicon/runtime",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "The engine of Lordicon players: icons rendered by ThorVG to pixels, natively (C++) and in WebAssembly, with live colours and stroke.",
     "repository": {
         "type": "git",

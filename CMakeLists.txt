@@ -6,7 +6,7 @@
 # (scripts/vendor-thorvg.sh, which the npm package ships); else the thorvg/ submodule, exported
 # and patched into the build directory by scripts/prepare-thorvg.sh.
 cmake_minimum_required(VERSION 3.22)
-project(lordicon_runtime VERSION 0.1.0 LANGUAGES CXX)
+project(lordicon_runtime VERSION 0.2.0 LANGUAGES CXX)
 
 set(THORVG_SRC "" CACHE PATH "Patched ThorVG source tree")
 if(NOT THORVG_SRC)

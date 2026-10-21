@@ -150,8 +150,8 @@ export class Icon {
     }
 
     /**
-     * The file's first frame (`ip`). Frames are absolute, as markers count them:
-     * `firstFrame` to `firstFrame + totalFrames - 1`.
+     * The file's first frame (`ip`, widened to its markers). Frames are absolute, as markers
+     * count them: `firstFrame` to `firstFrame + totalFrames - 1`.
      */
     get firstFrame(): number {
         return this.#M._li_first_frame(this.#live());

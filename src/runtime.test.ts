@@ -20,9 +20,9 @@ describe('Icon', () => {
     it('reads size, frames, markers, colours and stroke', () => {
         const lock = runtime.load(icon('lock'));
         expect(lock.width).toBe(430);
-        // The file is narrowed to its default state: ip 200, op 260.
-        expect(lock.firstFrame).toBe(200);
-        expect(lock.totalFrames).toBe(60);
+        // Narrowed to its default state (ip 200, op 260), widened to all its states.
+        expect(lock.firstFrame).toBe(0);
+        expect(lock.totalFrames).toBe(331);
         expect(lock.frameRate).toBe(60);
         expect(lock.markers.map((m) => m.name)).toEqual([
             'in-reveal',
@@ -33,6 +33,22 @@ describe('Icon', () => {
         expect(Object.keys(lock.colors)).toEqual(['primary', 'secondary']);
         expect(lock.stroke).toBe(2);
         lock.destroy();
+    });
+
+    it('widens a file narrowed to one state to all its states', () => {
+        // lock.json is narrowed to its default state (ip 200, op 260), as lordicon.com gives a
+        // file with a state chosen; the others are in it, as its markers say.
+        const lock = runtime.load(icon('lock'));
+        lock.seek(60); // in-reveal, outside the narrowed frames
+        const reveal = sum(lock.render(48, 48));
+        lock.seek(230); // morph-unlocked
+        expect(reveal).toBeGreaterThan(0);
+        expect(sum(lock.render(48, 48))).not.toBe(reveal);
+        lock.destroy();
+        // A whole file stays as it is, also with its last marker ending a frame after `op`.
+        const whole = runtime.load(icon('wired-flat-24-approved-checked-hover-pinch'));
+        expect([whole.firstFrame, whole.totalFrames]).toEqual([0, 60]);
+        whole.destroy();
     });
 
     it('renders frames', () => {
@@ -178,7 +194,7 @@ describe('Model', () => {
         const lock = model.icon();
         model.destroy();
         expect(() => model.icon()).toThrow();
-        expect(lock.totalFrames).toBe(60);
+        expect(lock.totalFrames).toBe(331);
         lock.destroy();
     });
 });

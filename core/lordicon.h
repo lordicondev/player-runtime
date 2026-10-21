@@ -102,7 +102,8 @@ public:
     // The whole icon in one colour, alpha kept (like CSS currentColor); off by default.
     void setTint(bool on, Rgb color = {0, 0, 0});
 
-    // Frames are absolute, like markers: firstFrame() .. firstFrame() + totalFrames() - 1.
+    // Frames are absolute, like markers: firstFrame() .. firstFrame() + totalFrames() - 1. A file
+    // narrowed to one state is widened to its markers (when preprocessed).
     bool frame(float no);
     float currentFrame() const;
 

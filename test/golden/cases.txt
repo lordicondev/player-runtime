@@ -1,32 +1,34 @@
 # Golden frames: what the runtime draws, checked for the native build (cli/goldens) and the
 # WebAssembly build (src/golden.test.ts) against <name>.png here. Icons from examples/icons.
 # t: 0..1 over the file's frames (rounded to a whole frame). colors and stroke: through the
-# C API after load (slots), as the players set them; - for the icon's own.
+# C API after load (slots), as the players set them; - for the icon's own. lock, coins and rocket
+# are narrowed to one state; their t lands on frames of that state in the file widened to all
+# its states (lock 200-259, coins 160-249, rocket 368-457).
 # Update after an intended change: see test/golden/README.md.
 #
-# name                  icon                                                    t     size colors                              stroke
-lock-0                  lock.json                                               0     96   -                                   -
-lock-50                 lock.json                                               0.5   96   -                                   -
-lock-100                lock.json                                               1     96   -                                   -
-lock-custom             lock.json                                               0.5   96   primary:#ff5a36,secondary:#3e63dd   3
-lock-light              lock.json                                               0.5   96   -                                   1
-lock-192                lock.json                                               0.3   192  -                                   -
-lock-alt-50             lock-alt.json                                           0.5   96   -                                   -
-coins-0                 coins.json                                              0     96   -                                   -
-coins-50                coins.json                                              0.5   96   -                                   -
-coins-custom            coins.json                                              0.5   96   primary:#12a594,secondary:#8e4ec6   1
-trash-50                trash.json                                              0.5   96   -                                   -
-download-50             download.json                                           0.5   96   -                                   -
-puzzle-50               puzzle.json                                             0.5   96   -                                   -
-morph-select-0          morph-select.json                                       0     96   -                                   -
-morph-select-50         morph-select.json                                       0.5   96   -                                   -
-morph-account-50        morph-account.json                                      0.5   96   -                                   -
-morph-shopping-50       morph-shopping.json                                     0.5   96   -                                   -
-flat-24-0               wired-flat-24-approved-checked-hover-pinch.json         0     96   -                                   -
-flat-24-50              wired-flat-24-approved-checked-hover-pinch.json         0.5   96   -                                   -
-gradient-3094-0         wired-gradient-3094-marketing-letter-hover-pinch.json   0     96   -                                   -
-gradient-3094-50        wired-gradient-3094-marketing-letter-hover-pinch.json   0.5   96   -                                   -
-gradient-3094-192       wired-gradient-3094-marketing-letter-hover-pinch.json   0.7   192  -                                   -
-rocket-0                wired-outline-489-rocket-space-hover-flying.json        0     96   -                                   -
-rocket-50               wired-outline-489-rocket-space-hover-flying.json        0.5   96   -                                   -
-rocket-custom           wired-outline-489-rocket-space-hover-flying.json        0.5   96   primary:#e5484d                     3
+# name                  icon                                                    t       size colors                              stroke
+lock-0                  lock.json                                               0.6061  96   -                                   -
+lock-50                 lock.json                                               0.697   96   -                                   -
+lock-100                lock.json                                               0.7848  96   -                                   -
+lock-custom             lock.json                                               0.697   96   primary:#ff5a36,secondary:#3e63dd   3
+lock-light              lock.json                                               0.697   96   -                                   1
+lock-192                lock.json                                               0.6606  192  -                                   -
+lock-alt-50             lock-alt.json                                           0.5     96   -                                   -
+coins-0                 coins.json                                              0.381   96   -                                   -
+coins-50                coins.json                                              0.4881  96   -                                   -
+coins-custom            coins.json                                              0.4881  96   primary:#12a594,secondary:#8e4ec6   1
+trash-50                trash.json                                              0.5     96   -                                   -
+download-50             download.json                                           0.5     96   -                                   -
+puzzle-50               puzzle.json                                             0.5     96   -                                   -
+morph-select-0          morph-select.json                                       0       96   -                                   -
+morph-select-50         morph-select.json                                       0.5     96   -                                   -
+morph-account-50        morph-account.json                                      0.5     96   -                                   -
+morph-shopping-50       morph-shopping.json                                     0.5     96   -                                   -
+flat-24-0               wired-flat-24-approved-checked-hover-pinch.json         0       96   -                                   -
+flat-24-50              wired-flat-24-approved-checked-hover-pinch.json         0.5     96   -                                   -
+gradient-3094-0         wired-gradient-3094-marketing-letter-hover-pinch.json   0       96   -                                   -
+gradient-3094-50        wired-gradient-3094-marketing-letter-hover-pinch.json   0.5     96   -                                   -
+gradient-3094-192       wired-gradient-3094-marketing-letter-hover-pinch.json   0.7     192  -                                   -
+rocket-0                wired-outline-489-rocket-space-hover-flying.json        0.4192  96   -                                   -
+rocket-50               wired-outline-489-rocket-space-hover-flying.json        0.4693  96   -                                   -
+rocket-custom           wired-outline-489-rocket-space-hover-flying.json        0.4693  96   primary:#e5484d                     3

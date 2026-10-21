@@ -85,7 +85,7 @@ An `Icon`:
 |                                                                     |                                                                               |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `width`, `height`                                                   | the composition size                                                          |
-| `frameRate`, `totalFrames`, `firstFrame`                            | `totalFrames` is `op - ip`, `firstFrame` is `ip`                              |
+| `frameRate`, `totalFrames`, `firstFrame`                            | `totalFrames` is `op - ip`, `firstFrame` is `ip` (widened to the markers)     |
 | `markers`                                                           | `[{ name: 'default:hover-pinch', begin, end }, ...]`                          |
 | `colors`, `setColor(name, '#rrggbb')`                               | the icon's named colours; a change takes effect on the next frame             |
 | `stroke`, `setStroke(1 \| 2 \| 3)`                                  | light, regular, bold; `stroke` is 0 for icons without a stroke control        |
@@ -99,7 +99,9 @@ An `Icon`:
 
 Markers name the icon's states: `default:` marks the default one, a suffix like `:0.5` the point
 of a morph's turn. Frames are absolute, as markers count them: from `firstFrame` to
-`firstFrame + totalFrames - 1`; a file narrowed to one state starts at that state's frame.
+`firstFrame + totalFrames - 1`. A file narrowed to one state (`ip`, `op` around it, as
+lordicon.com often gives it) still holds all its states: its frames are widened to its markers,
+so every state plays, as in the Lordicon players.
 Examples: [02 Colours, stroke and tint](examples/02-looks.ts),
 [04 Models](examples/04-models.ts).
 

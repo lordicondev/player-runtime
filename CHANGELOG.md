@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (2026-10-21)
+
+- A file narrowed to one state (`ip`, `op` around it, as lordicon.com often gives it) plays all
+  its states: its frames are widened to its markers, as the Lordicon players do. Before, its
+  markers named states outside its frames, which could not be shown. `firstFrame` and
+  `totalFrames` of such a file change (`lock.json` of the examples: 0 and 331, was 200 and 60);
+  a whole file stays as it is.
+- `frameRate` (`li_frame_rate`) is the file's own `fr`: it was `totalFrame / duration`, a float
+  off (59.999996 for 331 frames at 60).
+
+## 0.1.0 (2026-10-20)
 
 The first version: the engine of the coming Lordicon players.
 

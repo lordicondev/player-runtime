@@ -61,10 +61,12 @@ static void testLoad()
     auto lock = load("lock.json");
     CHECK(lock != nullptr);
     if (!lock) return;
-    // The file is narrowed to its default state: ip 200, op 260.
+    // Narrowed to its default state (ip 200, op 260), widened to all its states.
     CHECK(near(li_width(lock), 430));
-    CHECK(near(li_first_frame(lock), 200));
-    CHECK(near(li_total_frames(lock), 60));
+    CHECK(near(li_first_frame(lock), 0));
+    CHECK(near(li_total_frames(lock), 331));
+    CHECK(li_marker_begin(lock, 0) >= li_first_frame(lock));
+    CHECK(li_marker_end(lock, 3) <= li_first_frame(lock) + li_total_frames(lock) - 1);
     CHECK(near(li_frame_rate(lock), 60));
     CHECK(li_marker_count(lock) == 4);
     CHECK(strcmp(li_marker_name(lock, 2), "default:morph-unlocked") == 0);
